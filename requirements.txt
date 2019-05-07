@@ -1,0 +1,1 @@
+dialog_bot_sdk>=2.1.0

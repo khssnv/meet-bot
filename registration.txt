@@ -1,0 +1,10 @@
+alice  
+@alice  
+8:39 PM
+/bot new meeting_bot_example MeetingBotExample
+
+
+Security Bot  
+@security  
+8:39 PM
+Yay! Bot created, bot token 3052517487f5e55a45107173e55b3bd8a918270f, bot id: 2113376149
