@@ -7,12 +7,13 @@ import grpc
 import json
 import logging
 import os
+import random
 import re
 import sys
 import time
 from threading import Thread
 
-import transitions
+from transitions import Machine
 
 from dialog_bot_sdk.bot import DialogBot
 
@@ -21,26 +22,73 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
         level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+#logging.getLogger('transitions').setLevel(logging.INFO)
+
+
+states = ['request', 'subject', 'location', 'meeting', 'bookit', 'modify', 'invitation',
+            'passportDetails', 'createGroup']
+
+
+db = {
+        'welcome': 'Hi there! I can help you to schedule meetings in seconds without leaving dialog messenger.\n'
+                    'Please, send me in next message your passport details, this format:\n'
+                    '<full name>, <passport number>\n'
+                    'These data need for scheduling internal meetings.\n'
+                    'Thank you!',
+        'undefined': 'I am sorry, but I do not understand. Please, try again using these requests:\n'
+                    '[meet] with (@a.dovgopolova) for (1 hr)(next week): finds times to meet based on everyone\'s calendar availability.\n'
+                    '[room]: finds available meeting rooms.\n'
+                    '[show] (my)(day) or show (tomorrow)/ (list): displays your meetings for the day or list of meetings\' groups in messenger.\n'
+                    '[settings]: view or modify your settings and preferences.',
+        'greetings': ['Hi', 'Hello']
+
+    }
 
 class User:
     """
     1st order states: new, verified (with passport)
     2nd order states are for verified
     """
-    _states1 = ['new', 'verified']
-    _states2 = ['request', 'subject', 'location', 'meeting', 'bookit', 'modify', 'invitation',
-            'passportDetails', 'createGroup']
+
+    name = None
+    passport_number = None
+    states = ['new', 'kyc']
+    transitions = [ {'trigger': 'register', 'source': 'new', 'dest': 'kyc'} ]
 
     def __init__(self, user_id):
+        self._machine = Machine(model=self, states=User.states, initial=User.states[0],
+                transitions=User.transitions)
         self._id = user_id
 
     @property
     def id(self):
         return self._id
 
+    def is_kyc(self):
+        return True if self.name and self.passport_number else False
+
     def proc(self, msg):
+        text = msg.message.textMessage.text
         logger.debug('I am user {} recv msg {}'.format(self.id, msg))
-        return 'answer from user {}'.format(self.id)
+        ret = None
+        if self.state == 'new':
+            if text == '/start':
+                ret = db['welcome']
+            elif re.compile(r'\w{2,}? \w{2,}?\s*,\s*\w+').match(text):
+                self.name, self.passport_number = text.split(',')
+                self.register()
+                ret = 'Thanks! Your name: {}, your passport number: {}'.format(
+                        self.name, self.passport_number)
+            else:
+                ret = db['welcome']
+        elif self.state == 'kyc':
+            if False: # check message for meeting scheduling
+                pass #TODO
+            else:
+                ret = db['undefined']
+        else:
+            logger.error('Unexpected user state')
+        return ret
 
 
 class NoUserWithId(Exception):
@@ -101,6 +149,10 @@ def raw_callback(*args, **kwargs):
     pass
 
 
+class NoResponseError(Exception):
+    pass
+
+
 def proc_message(params: tuple):
     """Process message in separate thread
     """
@@ -108,7 +160,15 @@ def proc_message(params: tuple):
     #TODO
     logger.debug('Incoming message:')
     logger.debug('proc_message <- {}'.format(params))
-    answer = users_pool.recv_from(params.sender_uid, params)
+    
+    greeting_rg = re.compile(r'{}|{}'.format(*[x for x in db['greetings']]), flags=re.IGNORECASE)
+    if greeting_rg.match(params.message.textMessage.text):
+        logger.debug('greeting')
+        answer = random.choice(db['greetings'])
+    else:
+        answer = users_pool.recv_from(params.sender_uid, params)
+    if not answer:
+        raise NoResponseError('No answer provided, but bot must to response something')
     bot.messaging.send_message(params.peer, answer)
 
 
